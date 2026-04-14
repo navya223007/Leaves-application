@@ -1,0 +1,7 @@
+backend
+
+--> npm init -y npm install express mysql2 cors body-parser jsonwebtoken
+bcryptjs
+
+npm install express mysql2 cors jsonwebtoken
+-->npm install cors

@@ -5,6 +5,10 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
+/* =========================
+   CORS CONFIG
+========================= */
+
 app.use(
   cors({
     origin: "http://localhost:3000",
@@ -13,6 +17,7 @@ app.use(
     credentials: true,
   }),
 );
+
 app.use(express.json());
 
 /* =========================
@@ -28,7 +33,7 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
   if (err) {
-    console.log("Database connection failed");
+    console.log("Database connection failed:", err);
   } else {
     console.log("Database connected");
   }
@@ -41,7 +46,7 @@ db.connect((err) => {
 const ACCESS_TOKEN_SECRET = "secure_access_token_key";
 
 /* =========================
-   JWT VERIFY MIDDLEWARE
+   VERIFY TOKEN
 ========================= */
 
 const verifyToken = (req, res, next) => {
@@ -63,13 +68,12 @@ const verifyToken = (req, res, next) => {
     }
 
     req.user = decoded;
-
     next();
   });
 };
 
 /* =========================
-   LOGIN API (JWT TOKEN)
+   LOGIN API
 ========================= */
 
 app.post("/login", (req, res) => {
@@ -119,12 +123,13 @@ app.post("/login", (req, res) => {
   });
 });
 
-// =========================
-// GENERATE EMPLOYEE ID
-// =========================
+/* =========================
+   GENERATE EMPLOYEE ID
+========================= */
 
 const generateEmployeeId = (callback) => {
-  const sql = "SELECT employee_id FROM login ORDER BY id DESC LIMIT 1";
+  const sql =
+    "SELECT employee_id FROM login WHERE employee_id IS NOT NULL ORDER BY id DESC LIMIT 1";
 
   db.query(sql, (err, result) => {
     if (err) {
@@ -133,7 +138,7 @@ const generateEmployeeId = (callback) => {
 
     let newId = "EMP001";
 
-    if (result.length > 0) {
+    if (result.length > 0 && result[0].employee_id) {
       const lastId = result[0].employee_id;
 
       const number = parseInt(lastId.replace("EMP", ""));
@@ -146,12 +151,20 @@ const generateEmployeeId = (callback) => {
     callback(null, newId);
   });
 };
+
 /* =========================
-   CREATE EMPLOYEE
+   CREATE EMPLOYEE ADMIN ONLY
 ========================= */
 
 app.post("/create-employee", verifyToken, (req, res) => {
-  const { name, email, password, department } = req.body;
+  if (req.user.role !== "admin") {
+    return res.json({
+      success: false,
+      message: "Access denied",
+    });
+  }
+
+  const { name, email, password, department, sub_department } = req.body;
 
   if (!name || !email || !password || !department) {
     return res.json({
@@ -159,8 +172,6 @@ app.post("/create-employee", verifyToken, (req, res) => {
       message: "All fields are required",
     });
   }
-
-  // Generate Employee ID
 
   generateEmployeeId((err, employee_id) => {
     if (err) {
@@ -177,7 +188,15 @@ app.post("/create-employee", verifyToken, (req, res) => {
 
     db.query(
       sql,
-      [employee_id, name, email, password, "employee", department],
+      [
+        employee_id,
+        name,
+        email,
+        password,
+        "employee",
+        department,
+        sub_department,
+      ],
       (err, result) => {
         if (err) {
           console.log(err);
@@ -197,16 +216,26 @@ app.post("/create-employee", verifyToken, (req, res) => {
     );
   });
 });
+
 /* =========================
-   GET EMPLOYEES LIST
+   GET EMPLOYEES ADMIN ONLY
 ========================= */
 
 app.get("/employees", verifyToken, (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.json({
+      success: false,
+      message: "Access denied",
+    });
+  }
+
   const sql =
     "SELECT id, employee_id, name, email, department, role FROM login WHERE role='employee'";
 
   db.query(sql, (err, result) => {
     if (err) {
+      console.log(err);
+
       return res.json({
         success: false,
         message: "Database error",
@@ -215,7 +244,7 @@ app.get("/employees", verifyToken, (req, res) => {
 
     return res.json({
       success: true,
-      data: result,
+      employees: result,
     });
   });
 });
@@ -231,6 +260,8 @@ app.get("/employee/:id", verifyToken, (req, res) => {
 
   db.query(sql, [id], (err, result) => {
     if (err) {
+      console.log(err);
+
       return res.json({
         success: false,
       });
@@ -244,20 +275,28 @@ app.get("/employee/:id", verifyToken, (req, res) => {
 });
 
 /* =========================
-   UPDATE EMPLOYEE
+   UPDATE EMPLOYEE ADMIN ONLY
 ========================= */
 
 app.put("/update-employee/:id", verifyToken, (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.json({
+      success: false,
+      message: "Access denied",
+    });
+  }
+
   const id = req.params.id;
 
-  const { employee_id, name, email, password, department } = req.body;
+  const { employee_id, name, email, password, department, sub_department } =
+    req.body;
 
   const sql =
-    "UPDATE login SET employee_id=?, name=?, email=?, password=?, department=? WHERE id=?";
+    "UPDATE login SET employee_id=?, name=?, email=?, password=?, department=?, sub_department=? WHERE id=?";
 
   db.query(
     sql,
-    [employee_id, name, email, password, department, id],
+    [employee_id, name, email, password, department, sub_department, id],
     (err, result) => {
       if (err) {
         console.log(err);
@@ -277,16 +316,25 @@ app.put("/update-employee/:id", verifyToken, (req, res) => {
 });
 
 /* =========================
-   DELETE EMPLOYEE
+   DELETE EMPLOYEE ADMIN ONLY
 ========================= */
 
 app.delete("/delete-employee/:id", verifyToken, (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.json({
+      success: false,
+      message: "Access denied",
+    });
+  }
+
   const id = req.params.id;
 
   const sql = "DELETE FROM login WHERE id=?";
 
   db.query(sql, [id], (err, result) => {
     if (err) {
+      console.log(err);
+
       return res.json({
         success: false,
         message: "Delete failed",

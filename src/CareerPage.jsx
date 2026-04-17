@@ -1,40 +1,85 @@
-import React, { useEffect, useState, useRef } from "react";
-import axios from "axios";
-import { useNavigate } from "react-router-dom";
-import JobCarousel from "./JobCarousel";
+import React, { useState, useEffect } from "react";
+
+const API = "http://localhost:8082";
 
 export default function CareerPage() {
-  const navigate = useNavigate();
+  // Admin
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminOtp, setAdminOtp] = useState("");
+  const [adminVerified, setAdminVerified] = useState(false);
+  const [file, setFile] = useState(null);
 
-  const initialState = {
-    name: "",
-    email: "",
-    mobile: "",
-    message: "",
-    resume: null,
-  };
-
-  const [formData, setFormData] = useState(initialState);
+  // Jobs
   const [jobs, setJobs] = useState([]);
   const [selectedJobs, setSelectedJobs] = useState([]);
 
-  const fileRef = useRef(null);
+  // Form
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    mobile: "",
+    resume: null,
+  });
 
-  /* ================= FETCH JOBS (ONLY ONCE) ================= */
+  // ================= ADMIN =================
+  const sendAdminOTP = async () => {
+    await fetch(`${API}/api/admin/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: adminEmail }),
+    });
+    alert("OTP Sent");
+  };
+
+  const verifyAdminOTP = async () => {
+    const res = await fetch(`${API}/api/admin/verify-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: adminEmail, otp: adminOtp }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      setAdminVerified(true);
+      alert("Admin Verified");
+    } else {
+      alert("Invalid OTP");
+    }
+  };
+
+  const uploadExcel = async () => {
+    const fd = new FormData();
+    fd.append("excelFile", file);
+
+    const res = await fetch(`${API}/api/admin/upload-jobs`, {
+      method: "POST",
+      body: fd,
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      setJobs(data.jobs);
+      alert("Jobs Uploaded");
+    }
+  };
+
+  // ================= JOBS =================
   useEffect(() => {
-    axios
-      .get("http://localhost:8082/api/jobs")
-      .then((res) => {
-        console.log("Jobs API:", res.data);
-        setJobs(res.data.jobs || res.data || []);
-      })
-      .catch((err) => console.log(err));
+    fetch(`${API}/api/jobs`)
+      .then((res) => res.json())
+      .then((data) => setJobs(data.jobs || []));
   }, []);
 
-  /* ================= INPUT CHANGE ================= */
+  const toggleJob = (role) => {
+    setSelectedJobs((prev) =>
+      prev.includes(role)
+        ? prev.filter((r) => r !== role)
+        : [...prev, role]
+    );
+  };
+
+  // ================= FORM =================
   const handleChange = (e) => {
     const { name, value, files } = e.target;
-
     if (name === "resume") {
       setFormData({ ...formData, resume: files[0] });
     } else {
@@ -42,179 +87,102 @@ export default function CareerPage() {
     }
   };
 
-  /* ================= JOB SELECT ================= */
-  const handleJobSelect = (role) => {
-    if (selectedJobs.includes(role)) {
-      setSelectedJobs(selectedJobs.filter((j) => j !== role));
-    } else {
-      setSelectedJobs([...selectedJobs, role]);
-    }
-  };
-
-  /* ================= SUBMIT ================= */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (selectedJobs.length === 0) {
-      alert("Please select job role");
-      return;
+      return alert("Select at least one role");
     }
 
     const fd = new FormData();
-
     fd.append("name", formData.name);
     fd.append("email", formData.email);
     fd.append("mobile", formData.mobile);
-    fd.append("message", formData.message);
     fd.append("resume", formData.resume);
     fd.append("selectedJobs", JSON.stringify(selectedJobs));
 
-    try {
-      const res = await axios.post("http://localhost:8082/api/apply", fd);
+    const res = await fetch(`${API}/api/apply`, {
+      method: "POST",
+      body: fd,
+    });
 
-      alert(res.data.message);
-
-      setFormData(initialState);
-      setSelectedJobs([]);
-
-      if (fileRef.current) fileRef.current.value = "";
-    } catch (err) {
-      console.log(err);
-      alert("Submission failed");
-    }
+    const data = await res.json();
+    alert(data.message || "Submitted");
   };
 
   return (
-    <div style={{ fontFamily: "Arial", background: "#f4f6f8" }}>
-      {/* HERO */}
-      <section
-        style={{
-          background: "linear-gradient(to right,#2563eb,#4f46e5)",
-          color: "white",
-          padding: "60px",
-          textAlign: "center",
-          position: "relative",
-        }}
-      >
-        <button
-          onClick={() => navigate("/admin-upload")}
-          style={{
-            position: "absolute",
-            top: "20px",
-            right: "20px",
-            padding: "10px 15px",
-            background: "#111827",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-          }}
-        >
-          Admin Upload Excel
-        </button>
+    <div style={{ padding: 20, fontFamily: "sans-serif" }}>
+      <h2>Career Page</h2>
 
-        <h1>Join Our Team</h1>
-        <p>Submit your resume and apply for open positions.</p>
-      </section>
+      {/* ===== ADMIN ===== */}
+      <h3>Admin Verification</h3>
+      <input
+        placeholder="Admin Email"
+        value={adminEmail}
+        onChange={(e) => setAdminEmail(e.target.value)}
+      />
+      <button onClick={sendAdminOTP}>Send OTP</button>
 
-      {/* JOB CAROUSEL */}
-      <JobCarousel jobs={jobs} />
+      <br />
 
-      {/* FORM */}
-      <section style={{ padding: "40px", background: "white" }}>
-        <div
-          style={{
-            maxWidth: "500px",
-            margin: "auto",
-            padding: "30px",
-            borderRadius: "10px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
-          }}
-        >
-          <h2 style={{ textAlign: "center", marginBottom: "20px" }}>
-            Submit Your Resume
-          </h2>
+      <input
+        placeholder="Enter OTP"
+        value={adminOtp}
+        onChange={(e) => setAdminOtp(e.target.value)}
+      />
+      <button onClick={verifyAdminOTP}>Verify</button>
 
-          <form onSubmit={handleSubmit}>
-            <input
-              type="text"
-              name="name"
-              placeholder="Your Name"
-              value={formData.name}
-              onChange={handleChange}
-              style={inputStyle}
-              required
-            />
+      {adminVerified && (
+        <>
+          <h4>Upload Excel</h4>
+          <input type="file" onChange={(e) => setFile(e.target.files[0])} />
+          <button onClick={uploadExcel}>Upload</button>
+        </>
+      )}
 
-            <input
-              type="email"
-              name="email"
-              placeholder="Your Email"
-              value={formData.email}
-              onChange={handleChange}
-              style={inputStyle}
-              required
-            />
+      <hr />
 
-            <input
-              type="tel"
-              name="mobile"
-              placeholder="Mobile Number"
-              value={formData.mobile}
-              onChange={handleChange}
-              style={inputStyle}
-              required
-            />
+      {/* ===== JOBS ===== */}
+      <h3>Select Roles (Multiple Openings)</h3>
 
-            <textarea
-              name="message"
-              placeholder="Message"
-              value={formData.message}
-              onChange={handleChange}
-              style={inputStyle}
-            />
+      <div style={{ display: "flex", overflowX: "auto", gap: 10 }}>
+        {jobs.map((job, i) => (
+          <div
+            key={i}
+            onClick={() => toggleJob(job.jobrole)}
+            style={{
+              minWidth: 200,
+              border: "1px solid #ccc",
+              padding: 10,
+              cursor: "pointer",
+              background: selectedJobs.includes(job.jobrole)
+                ? "#dbeafe"
+                : "#fff",
+            }}
+          >
+            <h4>{job.jobrole}</h4>
+            <p>{job.joblocation}</p>
+            <small>{job.jobtype}</small>
+          </div>
+        ))}
+      </div>
 
-            <input
-              type="file"
-              name="resume"
-              ref={fileRef}
-              onChange={handleChange}
-              style={inputStyle}
-              required
-            />
+      <hr />
 
-            <button style={buttonStyle}>Submit Application</button>
-          </form>
-        </div>
-      </section>
+      {/* ===== FORM ===== */}
+      <h3>Apply</h3>
 
-      {/* FOOTER */}
-      <footer
-        style={{
-          background: "#111827",
-          color: "white",
-          textAlign: "center",
-          padding: "15px",
-        }}
-      >
-        © 2026 SES Company
-      </footer>
+      <form onSubmit={handleSubmit}>
+        <input name="name" placeholder="Name" onChange={handleChange} required />
+        <br />
+        <input name="email" placeholder="Email" onChange={handleChange} required />
+        <br />
+        <input name="mobile" placeholder="Mobile" onChange={handleChange} required />
+        <br />
+        <input type="file" name="resume" onChange={handleChange} required />
+        <br />
+        <button type="submit">Submit</button>
+      </form>
     </div>
   );
 }
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px",
-  marginBottom: "15px",
-  borderRadius: "6px",
-  border: "1px solid #ccc",
-};
-
-const buttonStyle = {
-  width: "100%",
-  padding: "12px",
-  background: "#2563eb",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-};

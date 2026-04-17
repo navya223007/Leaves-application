@@ -3,41 +3,31 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const xlsx = require("xlsx");
+const XLSX = require("xlsx");
 const nodemailer = require("nodemailer");
-const fs = require("fs");
 const mysql = require("mysql2");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-/* ================= DATABASE CONNECTION ================= */
-
+// ===== MYSQL CONNECTION =====
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "123456789",
-  database: "career_portal",
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "career_db",
 });
 
 db.connect((err) => {
-  if (err) {
-    console.log("DB connection failed:", err);
-  } else {
-    console.log("MySQL Connected");
-  }
+  if (err) console.log("DB Error:", err);
+  else console.log("MySQL Connected");
 });
 
-/* ================= OTP STORAGE ================= */
+// ===== FILE UPLOAD =====
+const upload = multer({ dest: "uploads/" });
 
-let storedOTP = null;
-let otpExpiry = null;
-let isVerified = false;
-
-/* ================= EMAIL CONFIG ================= */
-
+// ===== EMAIL SETUP =====
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -46,136 +36,149 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-/* ================= SEND OTP ================= */
+async function sendMail(to, subject, text, filePath = null) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to,
+    subject,
+    text,
+  };
 
-app.post("/api/send-otp", async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ message: "Email is required" });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000);
-
-    storedOTP = otp;
-    otpExpiry = Date.now() + 5 * 60 * 1000;
-    isVerified = false;
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: "OTP Verification",
-      text: `Your OTP is ${otp}`,
-    });
-
-    res.json({ success: true, message: "OTP sent successfully" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+  if (filePath) {
+    mailOptions.attachments = [{ path: filePath }];
   }
-});
 
-/* ================= VERIFY OTP ================= */
-
-app.post("/api/verify-otp", (req, res) => {
-  try {
-    const { otp } = req.body;
-
-    if (!otp) return res.status(400).json({ message: "OTP required" });
-
-    if (Date.now() > otpExpiry)
-      return res.status(400).json({ message: "OTP expired" });
-
-    if (parseInt(otp) !== storedOTP)
-      return res.status(400).json({ message: "Invalid OTP" });
-
-    isVerified = true;
-
-    res.json({ success: true, message: "OTP verified" });
-  } catch (err) {
-    res.status(500).json({ message: "Verification failed" });
-  }
-});
-
-/* ================= FILE UPLOAD ================= */
-
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads");
+  await transporter.sendMail(mailOptions);
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + "_" + file.originalname),
-});
+// ===== OTP STORE =====
+let otpStore = {};
 
-const upload = multer({ storage });
+// ===== ADMIN OTP =====
+app.post("/api/admin/send-otp", async (req, res) => {
+  const { email } = req.body;
 
-/* ================= UPLOAD JOBS (EXCEL → MYSQL) ================= */
+  const otp = Math.floor(100000 + Math.random() * 900000);
+  otpStore[email] = otp;
 
-app.post("/api/upload-jobs", upload.single("file"), (req, res) => {
   try {
-    const workbook = xlsx.readFile(req.file.path);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-    let data = xlsx.utils.sheet_to_json(sheet);
-
-    data = data.map((job) => ({
-      jobrole: job["Job Role"],
-      joblocation: job["Location"],
-      jobtype: job["Job Type"],
-      jobdescription: job["descrption"] || "No description provided",
-    }));
-
-    const query = `
-      INSERT INTO jobs (jobrole, joblocation, jobtype, jobdescription)
-      VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-      jobtype = VALUES(jobtype),
-      jobdescription = VALUES(jobdescription),
-      updated_at = CURRENT_TIMESTAMP
-    `;
-
-    data.forEach((job) => {
-      db.query(query, [
-        job.jobrole,
-        job.joblocation,
-        job.jobtype,
-        job.jobdescription,
-      ]);
-    });
-
-    res.json({
-      success: true,
-      message: "Excel uploaded & jobs updated successfully",
-      totalJobs: data.length,
-    });
+    await sendMail(email, "Admin OTP", `Your OTP is ${otp}`);
+    res.json({ success: true });
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Upload failed" });
+    res.json({ success: false, message: "OTP send failed" });
   }
 });
 
-/* ================= GET JOBS ================= */
+app.post("/api/admin/verify-otp", (req, res) => {
+  const { email, otp } = req.body;
 
-app.get("/api/jobs", (req, res) => {
-  const query = "SELECT * FROM jobs ORDER BY updated_at DESC";
+  if (otpStore[email] == otp) {
+    res.json({ success: true });
+  } else {
+    res.json({ success: false });
+  }
+});
 
-  db.query(query, (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: "DB error" });
-    }
+// ===== PARSE EXCEL =====
+function parseExcel(filePath) {
+  const wb = XLSX.readFile(filePath);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-    res.json({
-      success: true,
-      jobs: results,
+  // target mail (2nd row)
+  const targetMail = data[1][0];
+
+  const jobs = [];
+
+  for (let i = 4; i < data.length; i++) {
+    const row = data[i];
+    if (!row[1]) continue;
+
+    jobs.push([
+      row[1], // role
+      row[2], // location
+      row[3], // type
+      row[4], // description
+    ]);
+  }
+
+  return { targetMail, jobs };
+}
+
+// ===== UPLOAD EXCEL =====
+app.post("/api/admin/upload-jobs", upload.single("excelFile"), (req, res) => {
+  try {
+    const { targetMail, jobs } = parseExcel(req.file.path);
+
+    // Save target email
+    db.query("DELETE FROM config", () => {
+      db.query("INSERT INTO config (targetmail) VALUES (?)", [targetMail]);
     });
+
+    // Clear old jobs
+    db.query("DELETE FROM jobs", () => {
+      // Insert new jobs
+      jobs.forEach((job) => {
+        db.query(
+          "INSERT INTO jobs (jobrole, joblocation, jobtype, jobdescription) VALUES (?, ?, ?, ?)",
+          job
+        );
+      });
+    });
+
+    res.json({ success: true, message: "Jobs uploaded successfully" });
+  } catch (err) {
+    console.log(err);
+    res.json({ success: false, message: "Excel parse error" });
+  }
+});
+
+// ===== GET JOBS =====
+app.get("/api/jobs", (req, res) => {
+  db.query("SELECT * FROM jobs", (err, result) => {
+    if (err) return res.json({ success: false });
+    res.json({ success: true, jobs: result });
   });
 });
 
-/* ================= SERVER ================= */
+// ===== APPLY =====
+app.post("/api/apply", upload.single("resume"), async (req, res) => {
+  try {
+    const { name, email, mobile, selectedJobs } = req.body;
 
-const PORT = process.env.PORT || 8082;
+    const roles = JSON.parse(selectedJobs);
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+    // get HR email
+    db.query("SELECT targetmail FROM config LIMIT 1", async (err, result) => {
+      if (err || result.length === 0) {
+        return res.json({ success: false, message: "No HR email found" });
+      }
+
+      const targetMail = result[0].targetmail;
+
+      await sendMail(
+        targetMail,
+        "New Job Application",
+        `
+Name: ${name}
+Email: ${email}
+Mobile: ${mobile}
+
+Applied Roles:
+${roles.join(", ")}
+        `,
+        req.file.path
+      );
+
+      res.json({ success: true, message: "Application sent to HR" });
+    });
+  } catch (err) {
+    console.log(err);
+    res.json({ success: false, message: "Submission failed" });
+  }
+});
+
+// ===== START SERVER =====
+app.listen(process.env.PORT || 8082, () => {
+  console.log(`Server running on port ${process.env.PORT || 8082}`);
 });

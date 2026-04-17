@@ -615,6 +615,7 @@ export default function CareerPage() {
                 <span>{job.joblocation}</span>
                 <span>·</span>
                 <span>{job.jobtype}</span>
+                  <span>{job.descrpition}</span>
                 <span className="dot">◆</span>
               </div>
             ))}
@@ -748,7 +749,7 @@ export default function CareerPage() {
             {/* Email + OTP send */}
             <div className="field">
               <label>Email Address</label>
-              <div className="otp-row">
+             
                 <div className="field" style={{ marginBottom: 0 }}>
                   <input
                     type="email"
@@ -759,57 +760,15 @@ export default function CareerPage() {
                     onChange={handleChange}
                   />
                 </div>
-                {!otpVerified && (
-                  <button
-                    type="button"
-                    className="otp-send-btn"
-                    onClick={handleSendOTP}
-                    disabled={otpTimer > 0}
-                  >
-                    {otpTimer > 0
-                      ? `${Math.floor(otpTimer / 60)}:${String(otpTimer % 60).padStart(2, "0")}`
-                      : otpSent
-                        ? "Resend OTP"
-                        : "Send OTP"}
-                  </button>
-                )}
+               
               </div>
             </div>
 
-            {/* OTP verify */}
-            {otpSent && !otpVerified && (
-              <div className="field">
-                <label>Enter OTP</label>
-                <div className="otp-row">
-                  <div className="field" style={{ marginBottom: 0 }}>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      placeholder="6-digit OTP"
-                      value={otpValue}
-                      onChange={(e) => setOtpValue(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="otp-send-btn"
-                    onClick={handleVerifyOTP}
-                  >
-                    Verify
-                  </button>
-                </div>
-              </div>
-            )}
+        
 
-            {otpMsg && (
-              <div className={`msg ${otpMsg.type}`}>{otpMsg.text}</div>
-            )}
+           
 
-            {otpVerified && (
-              <div className="verified-badge" style={{ marginTop: 8 }}>
-                ✓ Email verified
-              </div>
-            )}
+           
 
             {/* Mobile */}
             <div className="field">

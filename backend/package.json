@@ -10,10 +10,21 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+<<<<<<< HEAD
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.22.2"
+=======
+    "axios": "^1.15.0",
+    "bcryptjs": "^3.0.3",
+    "body-parser": "^2.2.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.22.0",
+    "react-router-dom": "^7.14.0"
+>>>>>>> 46ee1f274c5f268f47c5e27e9a5fb942d1afcd5c
   }
 }

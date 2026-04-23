@@ -1,0 +1,105 @@
+app.post("/api/send-otp", async (req, res) => {
+  console.log("\n=== SEND OTP REQUEST RECEIVED ===");
+  console.log("Request body:", req.body);
+
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    console.log("Missing username or password");
+    return res.status(400).json({
+      success: false,
+      message: "Username and password are required",
+    });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    console.log(" Database connected");
+
+    // Check if user exists
+    const [users] = await connection.query(
+      "SELECT * FROM users WHERE username = ?",
+      [username],
+    );
+
+    console.log(`Found ${users.length} user(s) with username: ${username}`);
+
+    if (users.length === 0) {
+      connection.release();
+      return res.status(401).json({
+        success: false,
+        message: "Invalid username or password",
+      });
+    }
+
+    const user = users[0];
+    console.log("User found:", {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+    });
+
+    // Verify password (plain text comparison as per your database)
+    if (password !== user.password_hash) {
+      console.log(" Password mismatch");
+      connection.release();
+      return res.status(401).json({
+        success: false,
+        message: "Invalid username or password",
+      });
+    }
+
+    // Check if user has email
+    if (!user.email) {
+      console.log(" User has no email");
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: "No email registered for this account",
+      });
+    }
+
+    // Generate and store OTP
+    const otp = generateOTP();
+    const otpExpiry = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+    const otpKey = `login_${user.username.toLowerCase()}`;
+    loginOtpStorage.set(otpKey, {
+      otp: otp,
+      expiry: otpExpiry,
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      attempts: 0,
+    });
+
+    connection.release();
+
+    console.log(`\n Sending OTP to ${user.email}`);
+
+    const emailResult = await sendLoginOTPEmail(user.email, otp, user.username);
+    if (!emailResult.success) {
+      console.error(" Failed to send OTP email:", emailResult.error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP email. Please try again.",
+      });
+    }
+
+    console.log(` OTP sent to ${user.email}`);
+    res.json({
+      success: true,
+      message: "OTP sent to your email address",
+      email: user.email,
+    });
+  } catch (error) {
+    if (connection) connection.release();
+    console.error(" Server error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+});
